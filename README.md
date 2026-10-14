@@ -1,54 +1,57 @@
-# sv
+# xAPI Ice Breaker
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A browser-based ice-breaking game that sends gameplay statements to a remote xAPI Learning Record Store (LRS).
 
-## Creating a project
+## Remote LRS integration
 
-If you're seeing this, you've probably already done this step. Congrats!
+The browser sends game events to the SvelteKit server at `/api/xapi`. The server creates the xAPI statement and delivers it to the configured remote LRS with `@xapi/xapi`, keeping the LRS credentials out of the browser bundle.
+
+Set these environment variables where the SvelteKit server is deployed:
 
 ```sh
-# create a new project
-npx sv create my-app
+XAPI_LRS_ENDPOINT=https://your-lrs.example/xapi/
+XAPI_LRS_USERNAME=your-key-or-username
+XAPI_LRS_PASSWORD=your-secret
+XAPI_ACTIVITY_BASE_URL=https://buri.io/xapi/ice-breaker
 ```
 
-To recreate this project with the same configuration:
+`XAPI_LRS_ENDPOINT` must be the provider's xAPI endpoint, not its dashboard URL. Basic authentication is added when both username and password are set. No local LRS is required.
+
+When configured, game events are delivered to the remote LRS. The `/xapi-stream` page reads related statements back from the LRS in its server load. It does not use browser storage as a statement cache. If delivery fails, the API reports the error and gameplay continues uninterrupted.
+
+Each arena load creates a new registration and a stable pseudonymous actor for that session. The actor uses an xAPI account identifier under `https://buri.io`; all statements in the session share that actor and registration.
+
+### Statistics page
+
+`/xapi-stats` reads all paginated Ice Breaker statements from the remote LRS and presents hourly activity as a line graph alongside player, ice-break, and hammer-upgrade totals. The graph covers complete local days from 00:00 through 23:00 and fills inactive hours with zero values. It also groups players by their latest observed hammer and lists the pseudonymous users at every level.
+
+Hourly buckets use UTC. Players are counted by their xAPI inverse functional identifier, preferring the actor account used by this application.
+
+## Run the application
 
 ```sh
-# recreate this project
-npx sv@1.1.1 create --template minimal --types ts --add prettier eslint vitest="usages:unit" tailwindcss="plugins:typography" sveltekit-adapter="adapter:node" --install npm xapi-icebreaker
-```
-
-## Adding features
-
-Add features to your project with `sv add`:
-
-```sh
-npx sv add
-```
-
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+npm install
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+The application uses the remote LRS configured in `.env` during development or the deployment environment variables in production. It does not start or require a local LRS.
 
-To create a production version of your app:
+## Quality checks
 
 ```sh
+npm run lint
+npm run check
+npm test
 npm run build
 ```
 
-You can preview the production build with `npm run preview`.
+## xAPI events
+
+| Game event      | Verb                                              |
+| --------------- | ------------------------------------------------- |
+| Game started    | `http://adlnet.gov/expapi/verbs/launched`         |
+| Ice tapped      | `https://buri.io/xapi/ice-breaker/verbs/tapped`   |
+| Ice broken      | `https://buri.io/xapi/ice-breaker/verbs/broken`   |
+| Hammer upgraded | `https://buri.io/xapi/ice-breaker/verbs/upgraded` |
+
+See [XAPI_STATEMENT_EXAMPLES.md](./XAPI_STATEMENT_EXAMPLES.md) for complete statement examples.
