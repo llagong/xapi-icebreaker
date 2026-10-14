@@ -2,6 +2,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { HAMMERS } from '../lib/game/config';
 	import { calculateBreakScore, formatDuration, resolveHit } from '../lib/game/game';
+	import { loadSoundPreference, saveSoundPreference } from '../lib/game/preferences';
 	import {
 		loadProgress,
 		PROGRESS_VERSION,
@@ -18,7 +19,10 @@
 	let firstHitAt = $state<number | null>(null);
 	let isBreaking = $state(false);
 	let isHitAnimating = $state(false);
+	let isIceEntering = $state(true);
 	let isUpgrading = $state(false);
+	let soundEnabled = $state(true);
+	let prefersReducedMotion = $state(false);
 	let upgradeNotice = $state<string | null>(null);
 	let registrationId = $state<string | null>(null);
 	let iceId = $state<string | null>(null);
@@ -28,7 +32,28 @@
 	let hitTimer: ReturnType<typeof setTimeout> | undefined;
 	let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
 	let upgradeTimer: ReturnType<typeof setTimeout> | undefined;
+	let entranceTimer: ReturnType<typeof setTimeout> | undefined;
+	let audioContext: AudioContext | undefined;
+	let motionQuery: MediaQueryList | undefined;
+	const hammerVisuals = [
+		{ head: '#bf7b45', edge: '#8b5735', handle: '#7a4a2d', glow: '#f5b968' },
+		{ head: '#9aa8b6', edge: '#687784', handle: '#79533b', glow: '#b9c6d4' },
+		{ head: '#687985', edge: '#394852', handle: '#804d32', glow: '#f18762' },
+		{ head: '#60d9e6', edge: '#168f9b', handle: '#315b75', glow: '#56d6e9' },
+		{ head: '#ffd166', edge: '#e76f51', handle: '#6b4a7d', glow: '#ffd166' }
+	] as const;
+	const particlePositions = [
+		'top-[8%] left-[18%]',
+		'top-[2%] left-[48%]',
+		'top-[14%] right-[14%]',
+		'top-[44%] right-[2%]',
+		'right-[16%] bottom-[8%]',
+		'bottom-[2%] left-[45%]',
+		'bottom-[12%] left-[12%]',
+		'top-[42%] left-[1%]'
+	] as const;
 	const currentHammer = $derived(HAMMERS[hammerLevel]);
+	const currentHammerVisual = $derived(hammerVisuals[hammerLevel]);
 	const nextHammer = $derived(HAMMERS.find((hammer) => hammer.level === hammerLevel + 1) ?? null);
 	const upgradeCost = $derived(currentHammer.upgradeCost ?? 0);
 	const isMaximumLevel = $derived(nextHammer === null);
@@ -66,7 +91,61 @@
 		hits = 0;
 		firstHitAt = null;
 		isBreaking = false;
+		isIceEntering = !prefersReducedMotion;
+		if (entranceTimer) clearTimeout(entranceTimer);
+		entranceTimer = setTimeout(() => {
+			isIceEntering = false;
+		}, 30);
 		focusIce();
+	}
+
+	function getAudioContext(): AudioContext | null {
+		if (!soundEnabled) return null;
+		audioContext ??= new AudioContext();
+		if (audioContext.state === 'suspended') void audioContext.resume();
+		return audioContext;
+	}
+
+	function playImpactSound(): void {
+		const context = getAudioContext();
+		if (!context) return;
+		const oscillator = context.createOscillator();
+		const gain = context.createGain();
+		oscillator.type = hammerLevel >= 3 ? 'sawtooth' : 'triangle';
+		oscillator.frequency.setValueAtTime(150 + hammerLevel * 45, context.currentTime);
+		oscillator.frequency.exponentialRampToValueAtTime(55, context.currentTime + 0.09);
+		gain.gain.setValueAtTime(0.0001, context.currentTime);
+		gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.006);
+		gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.11);
+		oscillator.connect(gain).connect(context.destination);
+		oscillator.start();
+		oscillator.stop(context.currentTime + 0.12);
+	}
+
+	function playShatterSound(): void {
+		const context = getAudioContext();
+		if (!context) return;
+		const duration = 0.24;
+		const buffer = context.createBuffer(1, context.sampleRate * duration, context.sampleRate);
+		const samples = buffer.getChannelData(0);
+		for (let index = 0; index < samples.length; index += 1) {
+			const fade = 1 - index / samples.length;
+			samples[index] = (Math.random() * 2 - 1) * fade * fade;
+		}
+		const source = context.createBufferSource();
+		const filter = context.createBiquadFilter();
+		const gain = context.createGain();
+		source.buffer = buffer;
+		filter.type = 'highpass';
+		filter.frequency.value = 1_200;
+		gain.gain.value = 0.16;
+		source.connect(filter).connect(gain).connect(context.destination);
+		source.start();
+	}
+
+	function toggleSound(): void {
+		soundEnabled = !soundEnabled;
+		saveSoundPreference(window.localStorage, soundEnabled);
 	}
 
 	function hitIce(): void {
@@ -77,6 +156,7 @@
 		if (firstHitAt === null) firstHitAt = now;
 		hits = result.hits;
 		isHitAnimating = true;
+		playImpactSound();
 		const activeIceId = iceId ?? crypto.randomUUID();
 		iceId = activeIceId;
 		trackEvent({
@@ -94,6 +174,7 @@
 		if (!result.didBreak) return;
 
 		isBreaking = true;
+		playShatterSound();
 		const durationMs = Math.max(0, now - (firstHitAt ?? now));
 		const score = calculateBreakScore(durationMs);
 		points += score.points;
@@ -181,10 +262,22 @@
 		const savedProgress = loadProgress(window.localStorage);
 		points = savedProgress.points;
 		hammerLevel = savedProgress.hammerLevel;
+		soundEnabled = loadSoundPreference(window.localStorage);
+		motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+		prefersReducedMotion = motionQuery.matches;
+		const updateMotionPreference = (event: MediaQueryListEvent) => {
+			prefersReducedMotion = event.matches;
+		};
+		motionQuery.addEventListener('change', updateMotionPreference);
 		registrationId = crypto.randomUUID();
 		iceId = crypto.randomUUID();
+		entranceTimer = setTimeout(() => {
+			isIceEntering = false;
+		}, 30);
 		trackEvent({ type: 'game-started', hammerName: currentHammer.name });
 		focusIce();
+
+		return () => motionQuery?.removeEventListener('change', updateMotionPreference);
 	});
 
 	onDestroy(() => {
@@ -192,6 +285,8 @@
 		if (hitTimer) clearTimeout(hitTimer);
 		if (feedbackTimer) clearTimeout(feedbackTimer);
 		if (upgradeTimer) clearTimeout(upgradeTimer);
+		if (entranceTimer) clearTimeout(entranceTimer);
+		if (audioContext) void audioContext.close();
 	});
 </script>
 
@@ -201,7 +296,7 @@
 </svelte:head>
 
 <main
-	class="relative flex min-h-svh min-w-80 flex-col overflow-hidden bg-[#e8faf5] font-sans text-[#17443f] [color-scheme:light] selection:bg-[#ffd36b] selection:text-[#17443f]"
+	class="relative flex h-svh min-w-80 touch-none flex-col overflow-hidden overscroll-none bg-[#e8faf5] font-sans text-[#17443f] [color-scheme:light] select-none"
 >
 	<div
 		class="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,#c9f1eb_0%,#e8faf5_66%,#ffefbd_66%,#ffe49a_100%)]"
@@ -260,15 +355,43 @@
 				<small class="text-[0.55rem] font-black tracking-wider text-[#b07825]">PTS</small>
 			</span>
 		</div>
+
+		<button
+			class="ml-auto grid size-11 place-items-center rounded-full bg-white/80 text-[#397c75] shadow-sm ring-1 ring-[#168f88]/10 backdrop-blur transition hover:-translate-y-0.5 hover:text-[#168f88] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-[#ef795c] motion-reduce:transform-none motion-reduce:transition-none"
+			type="button"
+			onclick={toggleSound}
+			aria-label={soundEnabled ? 'Mute game sounds' : 'Enable game sounds'}
+			aria-pressed={!soundEnabled}
+		>
+			{#if soundEnabled}
+				<svg
+					class="size-5 fill-none stroke-current stroke-2"
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+				>
+					<path d="M4 9v6h4l5 4V5L8 9H4Z" />
+					<path d="M17 8.5a5 5 0 0 1 0 7M19.5 6a8.5 8.5 0 0 1 0 12" />
+				</svg>
+			{:else}
+				<svg
+					class="size-5 fill-none stroke-current stroke-2"
+					viewBox="0 0 24 24"
+					aria-hidden="true"
+				>
+					<path d="M4 9v6h4l5 4V5L8 9H4Z" />
+					<path d="m17 9 5 5m0-5-5 5" />
+				</svg>
+			{/if}
+		</button>
 	</header>
 
-	<section class="relative z-2 flex flex-1 text-center">
+	<section class="relative z-2 flex flex-1 pb-32 text-center max-sm:pb-44">
 		<div
 			class="absolute top-[52%] left-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center max-sm:top-1/2"
 		>
 			<div
 				class={breakFeedback
-					? 'mb-4 rounded-2xl bg-[#fff8d7]/95 px-5 py-2 text-[#9a5a17] shadow-[0_8px_24px_rgba(205,145,39,0.18)] backdrop-blur-sm'
+					? 'mb-4 animate-bounce rounded-2xl bg-[#fff8d7]/95 px-5 py-2 text-[#9a5a17] shadow-[0_8px_24px_rgba(205,145,39,0.18)] backdrop-blur-sm motion-reduce:animate-none'
 					: 'mb-4 rounded-2xl bg-white/70 px-4 py-2 text-[#397c75] shadow-sm backdrop-blur-sm'}
 				aria-live="polite"
 			>
@@ -288,7 +411,7 @@
 
 			<button
 				bind:this={iceButton}
-				class="group relative grid size-[clamp(210px,28vw,310px)] touch-manipulation place-items-center border-0 bg-transparent focus-visible:outline-3 focus-visible:outline-offset-6 focus-visible:outline-[#ef795c] max-sm:size-[210px]"
+				class="group relative grid size-[clamp(210px,28vw,310px)] touch-none place-items-center border-0 bg-transparent focus-visible:rounded-[30%] focus-visible:outline-3 focus-visible:outline-offset-6 focus-visible:outline-[#ef795c] max-sm:size-[210px]"
 				type="button"
 				disabled={isBreaking}
 				onclick={hitIce}
@@ -298,7 +421,7 @@
 					class={`absolute bottom-5 h-12 w-3/4 rounded-[50%] bg-[#168f88]/20 blur-xl transition duration-300 ${isBreaking ? 'scale-50 opacity-0' : 'opacity-100'}`}
 				></span>
 				<span
-					class={`relative block h-[86%] w-[78%] bg-[linear-gradient(135deg,#efffff_4%,#a5eee8_35%,#54d2cb_70%,#159c96_100%)] shadow-[inset_-22px_-24px_35px_rgba(11,124,119,0.22),0_20px_38px_rgba(23,143,136,0.2)] transition duration-300 [clip-path:polygon(18%_2%,80%_0,98%_18%,95%_77%,74%_98%,21%_94%,2%_76%,5%_20%)] group-hover:-translate-y-1 group-hover:scale-[1.02] group-active:translate-y-1 group-active:scale-[0.98] ${isHitAnimating ? 'scale-95' : ''} ${isBreaking ? 'scale-0 rotate-12 opacity-0' : 'opacity-100'}`}
+					class={`relative block h-[86%] w-[78%] bg-[linear-gradient(135deg,#efffff_4%,#a5eee8_35%,#54d2cb_70%,#159c96_100%)] shadow-[inset_-22px_-24px_35px_rgba(11,124,119,0.22),0_20px_38px_rgba(23,143,136,0.2)] transition duration-300 [clip-path:polygon(18%_2%,80%_0,98%_18%,95%_77%,74%_98%,21%_94%,2%_76%,5%_20%)] group-hover:-translate-y-1 group-hover:scale-[1.02] group-active:translate-y-1 group-active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none ${isIceEntering ? 'translate-y-10 scale-75 opacity-0' : ''} ${isHitAnimating ? (hits % 2 === 0 ? 'translate-x-2 scale-95 -rotate-1' : '-translate-x-2 scale-95 rotate-1') : ''} ${isBreaking ? 'scale-0 rotate-12 opacity-0' : 'opacity-100'}`}
 				>
 					<span
 						class="absolute top-[12%] left-[17%] h-[42%] w-[18%] rotate-12 rounded-full bg-white/55 blur-sm"
@@ -314,6 +437,39 @@
 						{#if hits >= 4}<path d="m99 93 40 18 24-32m-16 85 31-4" />{/if}
 					</svg>
 				</span>
+
+				<span
+					class={`pointer-events-none absolute top-[2%] right-[2%] z-10 block h-[58%] w-[42%] origin-[32%_82%] transition-transform duration-100 motion-reduce:transform-none motion-reduce:transition-none ${isBreaking ? 'translate-x-8 -translate-y-10 rotate-45 opacity-0' : isHitAnimating ? 'translate-x-[-18%] translate-y-[18%] rotate-[34deg]' : '-rotate-[28deg]'}`}
+					aria-hidden="true"
+				>
+					<span
+						class="absolute inset-2 rounded-full opacity-25 blur-xl"
+						style={`background-color: ${currentHammerVisual.glow}`}
+					></span>
+					<svg class="relative size-full drop-shadow-lg" viewBox="0 0 120 150">
+						<path d="M51 55h17l13 88H57L51 55Z" fill={currentHammerVisual.handle} />
+						<path d="M19 20h72l20 20-19 31H18L5 45 19 20Z" fill={currentHammerVisual.head} />
+						<path d="m91 20 20 20-19 31H77l13-29-17-22h18Z" fill={currentHammerVisual.edge} />
+						<path
+							d="M23 29h48"
+							fill="none"
+							stroke="white"
+							stroke-opacity=".45"
+							stroke-width="6"
+							stroke-linecap="round"
+						/>
+					</svg>
+				</span>
+
+				{#if isBreaking && !prefersReducedMotion}
+					{#each particlePositions as position, index (`${iceId}-${index}`)}
+						<span
+							class={`pointer-events-none absolute z-20 size-3 animate-ping rounded-sm bg-[#8ce9e2] shadow-[0_0_12px_rgba(255,255,255,0.9)] ${position}`}
+							style={`animation-delay: ${index * 35}ms`}
+							aria-hidden="true"
+						></span>
+					{/each}
+				{/if}
 			</button>
 		</div>
 		<section
@@ -322,12 +478,12 @@
 		>
 			<div class="flex min-w-0 items-center gap-3">
 				<span
-					class="grid size-12 shrink-0 place-items-center rounded-xl bg-[#fff1c2]"
+					class="grid size-12 shrink-0 place-items-center rounded-xl bg-white shadow-inner"
 					aria-hidden="true"
 				>
 					<svg class="size-8 -rotate-12" viewBox="0 0 64 64">
-						<path class="fill-[#bf7b45]" d="M10 9h34l10 10-10 13H10L3 20 10 9Z" />
-						<path class="fill-[#8b5735]" d="m30 29 10 3-9 29-10-3 9-29Z" />
+						<path fill={currentHammerVisual.head} d="M10 9h34l10 10-10 13H10L3 20 10 9Z" />
+						<path fill={currentHammerVisual.handle} d="m30 29 10 3-9 29-10-3 9-29Z" />
 					</svg>
 				</span>
 				<div class="min-w-0">

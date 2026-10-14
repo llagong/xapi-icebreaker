@@ -218,35 +218,35 @@ The implementation will stop at every milestone breakpoint so the milestone can 
 
 ### Implementation
 
-- [ ] Add a polished playful visual design.
-- [ ] Add a hammer-swing animation.
-- [ ] Add ice shake and progressive fracture effects.
-- [ ] Add ice-shatter particles.
-- [ ] Add floating score feedback.
-- [ ] Add smooth centered ice entrances.
-- [ ] Give each hammer level a distinct visual treatment.
-- [ ] Add generated impact and shatter sounds using browser audio.
-- [ ] Add a persistent sound toggle.
-- [ ] Prevent accidental scrolling, zooming, and text selection during play.
-- [ ] Add reduced-motion support.
-- [ ] Add accessible focus states, labels, and contrast.
-- [ ] Refine the layout for phone, tablet, and desktop viewports.
+- [x] Add a polished playful visual design.
+- [x] Add a hammer-swing animation.
+- [x] Add ice shake and progressive fracture effects.
+- [x] Add ice-shatter particles.
+- [x] Add floating score feedback.
+- [x] Add smooth centered ice entrances.
+- [x] Give each hammer level a distinct visual treatment.
+- [x] Add generated impact and shatter sounds using browser audio.
+- [x] Add a persistent sound toggle.
+- [x] Prevent accidental scrolling, zooming, and text selection during play.
+- [x] Add reduced-motion support.
+- [x] Add accessible focus states, labels, and contrast.
+- [x] Refine the layout for phone, tablet, and desktop viewports.
 
 ### Verification
 
-- [ ] Confirm the game works with mouse, touch, and keyboard input.
-- [ ] Confirm play does not accidentally scroll or select page content.
-- [ ] Confirm audio begins only after user interaction.
-- [ ] Confirm sound can be muted and the setting persists.
-- [ ] Confirm reduced-motion preferences disable intensive animation.
-- [ ] Confirm the interface remains usable at common viewport sizes.
-- [ ] Run `npm run check` successfully.
-- [ ] Run `npm test` successfully.
-- [ ] Run `npm run build` successfully.
+- [x] Confirm the game works with mouse, touch, and keyboard input.
+- [x] Confirm play does not accidentally scroll or select page content.
+- [x] Confirm audio begins only after user interaction.
+- [x] Confirm sound can be muted and the setting persists.
+- [x] Confirm reduced-motion preferences disable intensive animation.
+- [x] Confirm the interface remains usable at common viewport sizes.
+- [x] Run `npm run check` successfully.
+- [x] Run `npm test` successfully.
+- [x] Run `npm run build` successfully.
 
 ### Breakpoint 5
 
-- [ ] Provide a polished browser preview and test results.
+- [x] Provide a polished browser preview and test results.
 - [ ] Receive user approval for the visual and interaction design.
 
 > Stop here until Milestone 5 is reviewed and approved.
