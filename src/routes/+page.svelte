@@ -12,6 +12,7 @@
 	import type { HammerLevel } from '../lib/game/types';
 	import { emitXapiEvent } from '../lib/xapi/client';
 	import type { XapiEventPayload, XapiGameEvent } from '../lib/xapi/events';
+	import { getOrCreateSessionRegistration } from '../lib/xapi/session';
 
 	let points = $state(0);
 	let hammerLevel = $state<HammerLevel>(0);
@@ -269,7 +270,9 @@
 			prefersReducedMotion = event.matches;
 		};
 		motionQuery.addEventListener('change', updateMotionPreference);
-		registrationId = crypto.randomUUID();
+		registrationId = getOrCreateSessionRegistration(window.sessionStorage, () =>
+			crypto.randomUUID()
+		);
 		iceId = crypto.randomUUID();
 		entranceTimer = setTimeout(() => {
 			isIceEntering = false;
